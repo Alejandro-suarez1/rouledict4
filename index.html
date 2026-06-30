@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ESTRATÉGICO PRO — Análisis de Ruleta v3</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+
+<!-- ══ HEADER ══ -->
+<header class="app-header">
+  <div class="header-brand">
+    <span class="brand-icon">◈</span>
+    <span class="brand-name">ESTRATÉGICO <em>PRO</em></span>
+  </div>
+  <div class="header-meta">
+    <span class="meta-item">TIROS: <strong id="m-tiros">0</strong></span>
+    <span class="meta-sep">|</span>
+    <span class="meta-item">ESTADO: <strong id="m-status" class="status-idle">ESPERANDO</strong></span>
+    <span class="meta-sep">|</span>
+    <span class="meta-item" id="m-time">--:--:--</span>
+    <span class="meta-sep">|</span>
+    <span class="meta-item">SESIÓN: <strong id="m-session">NUEVA</strong></span>
+  </div>
+  <div class="header-actions">
+    <button class="btn-action" id="btn-undo">↩ UNDO</button>
+    <button class="btn-action" id="btn-export-json">⬇ JSON</button>
+    <button class="btn-action" id="btn-export-csv">⬇ CSV</button>
+    <button class="btn-action btn-danger" id="btn-reset">↺ RESET</button>
+  </div>
+</header>
+
+<!-- ══ TERMINAL DE CAPTURA ══ -->
+<section class="capture-terminal">
+  <div class="terminal-left">
+    <div class="last-number-display">
+      <span class="last-label">ÚLTIMO NÚMERO</span>
+      <span class="last-value" id="last-number">—</span>
+      <span class="last-color-badge" id="last-color-badge">—</span>
+    </div>
+    <div class="streak-display">
+      <span class="streak-label">RACHA COLOR</span>
+      <span class="streak-value" id="streak-value">—</span>
+    </div>
+    <div class="streak-display">
+      <span class="streak-label">RACHA DOCENA</span>
+      <span class="streak-value" id="streak-docena">—</span>
+    </div>
+  </div>
+  <div class="terminal-input-zone">
+    <label class="input-label">INGRESAR NÚMERO (0 – 36)</label>
+    <div class="input-row">
+      <input type="number" id="numero-input" class="numero-input" min="0" max="36" placeholder="0–36" autocomplete="off" autofocus/>
+      <button class="btn-registrar" id="btn-registrar">REGISTRAR ↵</button>
+    </div>
+    <div class="quick-nums" id="quick-nums"></div>
+  </div>
+  <div class="terminal-right">
+    <div class="strip-label">ÚLTIMOS 24</div>
+    <div class="history-strip" id="history-strip"></div>
+  </div>
+</section>
+
+<!-- ══ BANNER SEÑAL ══ -->
+<div class="signal-banner" id="signal-banner" style="display:none">
+  <span id="sb-icon">⚡</span>
+  <span class="signal-text" id="sb-text"></span>
+  <span class="signal-conf" id="sb-conf"></span>
+  <button class="signal-close" id="sb-close">✕</button>
+</div>
+
+<!-- ══ TABS ══ -->
+<nav class="tab-bar">
+  <button class="tab active" data-tab="resumen">RESUMEN</button>
+  <button class="tab" data-tab="docenas">DOCENAS</button>
+  <button class="tab" data-tab="senales">SEÑALES</button>
+  <button class="tab" data-tab="estadisticas">ESTADÍSTICAS</button>
+  <button class="tab" data-tab="apuestas">APUESTAS</button>
+  <button class="tab" data-tab="avanzado">AVANZADO</button>
+  <button class="tab" data-tab="capital">CAPITAL</button>
+  <button class="tab" data-tab="historial">HISTORIAL</button>
+</nav>
+
+<main class="tab-content">
+
+  <!-- ══ TAB: RESUMEN EJECUTIVO ══ -->
+  <div class="tab-pane active" id="tab-resumen">
+    <div class="resumen-layout">
+      <div id="resumen-panel"></div>
+    </div>
+  </div>
+
+  <!-- ══ TAB: DOCENAS ══ -->
+  <div class="tab-pane" id="tab-docenas">
+    <div class="main-grid">
+
+      <!-- COL 1: Tarjetas de docena -->
+      <div class="grid-col">
+        <section class="panel">
+          <h2 class="panel-title">◉ DOCENAS — ANÁLISIS COMPLETO</h2>
+          <div class="docenas-grid">
+
+            <div class="docena-card" id="card-d1">
+              <div class="docena-header">
+                <span class="docena-label">D1</span><span class="docena-range">1–12</span>
+                <span class="badge" id="d1-estado">—</span>
+              </div>
+              <div class="docena-stats">
+                <div class="stat-row"><span>F10</span><span id="d1-f10">—</span></div>
+                <div class="stat-row"><span>F20</span><span id="d1-f20">—</span></div>
+                <div class="stat-row"><span>F30</span><span id="d1-f30">—</span></div>
+                <div class="stat-row"><span>F50</span><span id="d1-f50">—</span></div>
+                <div class="stat-row accent"><span>AF (Z)</span><span id="d1-af">—</span></div>
+                <div class="stat-row"><span>EMA-5</span><span id="d1-ema5">—</span></div>
+                <div class="stat-row"><span>EMA-10</span><span id="d1-ema10">—</span></div>
+                <div class="stat-row"><span>EMA-20</span><span id="d1-ema20">—</span></div>
+                <div class="stat-row"><span>TENDENCIA</span><span id="d1-tend">—</span></div>
+                <div class="stat-row warn"><span>AUSENCIA</span><span id="d1-aus">—</span></div>
+                <div class="stat-row"><span>CICLO PROM.</span><span id="d1-ciclo">—</span></div>
+                <div class="stat-row"><span>CICLO MÍN</span><span id="d1-ciclo-min">—</span></div>
+                <div class="stat-row"><span>CICLO MÁX</span><span id="d1-ciclo-max">—</span></div>
+                <div class="stat-row"><span>APARICIONES</span><span id="d1-apariciones">—</span></div>
+                <div class="stat-row"><span>% REAL</span><span id="d1-pct">—</span></div>
+                <div class="stat-row"><span>% ESPERADO</span><span>32.4%</span></div>
+                <div class="stat-row"><span>DESVIACIÓN</span><span id="d1-desv">—</span></div>
+              </div>
+              <div class="docena-bar"><div class="bar-fill" id="d1-bar"></div></div>
+            </div>
+
+            <div class="docena-card" id="card-d2">
+              <div class="docena-header">
+                <span class="docena-label">D2</span><span class="docena-range">13–24</span>
+                <span class="badge" id="d2-estado">—</span>
+              </div>
+              <div class="docena-stats">
+                <div class="stat-row"><span>F10</span><span id="d2-f10">—</span></div>
+                <div class="stat-row"><span>F20</span><span id="d2-f20">—</span></div>
+                <div class="stat-row"><span>F30</span><span id="d2-f30">—</span></div>
+                <div class="stat-row"><span>F50</span><span id="d2-f50">—</span></div>
+                <div class="stat-row accent"><span>AF (Z)</span><span id="d2-af">—</span></div>
+                <div class="stat-row"><span>EMA-5</span><span id="d2-ema5">—</span></div>
+                <div class="stat-row"><span>EMA-10</span><span id="d2-ema10">—</span></div>
+                <div class="stat-row"><span>EMA-20</span><span id="d2-ema20">—</span></div>
+                <div class="stat-row"><span>TENDENCIA</span><span id="d2-tend">—</span></div>
+                <div class="stat-row warn"><span>AUSENCIA</span><span id="d2-aus">—</span></div>
+                <div class="stat-row"><span>CICLO PROM.</span><span id="d2-ciclo">—</span></div>
+                <div class="stat-row"><span>CICLO MÍN</span><span id="d2-ciclo-min">—</span></div>
+                <div class="stat-row"><span>CICLO MÁX</span><span id="d2-ciclo-max">—</span></div>
+                <div class="stat-row"><span>APARICIONES</span><span id="d2-apariciones">—</span></div>
+                <div class="stat-row"><span>% REAL</span><span id="d2-pct">—</span></div>
+                <div class="stat-row"><span>% ESPERADO</span><span>32.4%</span></div>
+                <div class="stat-row"><span>DESVIACIÓN</span><span id="d2-desv">—</span></div>
+              </div>
+              <div class="docena-bar"><div class="bar-fill" id="d2-bar"></div></div>
+            </div>
+
+            <div class="docena-card" id="card-d3">
+              <div class="docena-header">
+                <span class="docena-label">D3</span><span class="docena-range">25–36</span>
+                <span class="badge" id="d3-estado">—</span>
+              </div>
+              <div class="docena-stats">
+                <div class="stat-row"><span>F10</span><span id="d3-f10">—</span></div>
+                <div class="stat-row"><span>F20</span><span id="d3-f20">—</span></div>
+                <div class="stat-row"><span>F30</span><span id="d3-f30">—</span></div>
+                <div class="stat-row"><span>F50</span><span id="d3-f50">—</span></div>
+                <div class="stat-row accent"><span>AF (Z)</span><span id="d3-af">—</span></div>
+                <div class="stat-row"><span>EMA-5</span><span id="d3-ema5">—</span></div>
+                <div class="stat-row"><span>EMA-10</span><span id="d3-ema10">—</span></div>
+                <div class="stat-row"><span>EMA-20</span><span id="d3-ema20">—</span></div>
+                <div class="stat-row"><span>TENDENCIA</span><span id="d3-tend">—</span></div>
+                <div class="stat-row warn"><span>AUSENCIA</span><span id="d3-aus">—</span></div>
+                <div class="stat-row"><span>CICLO PROM.</span><span id="d3-ciclo">—</span></div>
+                <div class="stat-row"><span>CICLO MÍN</span><span id="d3-ciclo-min">—</span></div>
+                <div class="stat-row"><span>CICLO MÁX</span><span id="d3-ciclo-max">—</span></div>
+                <div class="stat-row"><span>APARICIONES</span><span id="d3-apariciones">—</span></div>
+                <div class="stat-row"><span>% REAL</span><span id="d3-pct">—</span></div>
+                <div class="stat-row"><span>% ESPERADO</span><span>32.4%</span></div>
+                <div class="stat-row"><span>DESVIACIÓN</span><span id="d3-desv">—</span></div>
+              </div>
+              <div class="docena-bar"><div class="bar-fill" id="d3-bar"></div></div>
+            </div>
+
+          </div>
+        </section>
+      </div>
+
+      <!-- COL 2: EMA + AF + Ciclos + Zonas -->
+      <div class="grid-col">
+        <section class="panel">
+          <h2 class="panel-title">◉ EMA & TENDENCIAS</h2>
+          <div class="ema-table">
+            <div class="ema-row ema-header">
+              <span>DOC</span><span>EMA-5</span><span>EMA-10</span><span>EMA-20</span><span>TEND.</span><span>MOM.</span>
+            </div>
+            <div class="ema-row">
+              <span class="ema-label">D1</span>
+              <span id="e1-5">—</span><span id="e1-10">—</span><span id="e1-20">—</span>
+              <span id="e1-tend">—</span><span id="e1-mom">—</span>
+            </div>
+            <div class="ema-row">
+              <span class="ema-label">D2</span>
+              <span id="e2-5">—</span><span id="e2-10">—</span><span id="e2-20">—</span>
+              <span id="e2-tend">—</span><span id="e2-mom">—</span>
+            </div>
+            <div class="ema-row">
+              <span class="ema-label">D3</span>
+              <span id="e3-5">—</span><span id="e3-10">—</span><span id="e3-20">—</span>
+              <span id="e3-tend">—</span><span id="e3-mom">—</span>
+            </div>
+          </div>
+        </section>
+        <section class="panel">
+          <h2 class="panel-title">◉ ACELERACIÓN AF (Z-SCORE)</h2>
+          <div id="af-visual"></div>
+          <div class="af-legend">
+            <span class="af-leg-item" style="color:var(--green)">▌ &gt;+1.5 Fuerte</span>
+            <span class="af-leg-item" style="color:var(--cyan)">▌ ±0.5–1.5 Mod.</span>
+            <span class="af-leg-item" style="color:var(--red)">▌ &lt;-1.5 Caída</span>
+          </div>
+        </section>
+        <section class="panel">
+          <h2 class="panel-title">◉ GRÁFICA CICLOS (% acumulado)</h2>
+          <canvas id="ciclo-canvas" width="320" height="120"></canvas>
+          <div class="ciclo-legend" id="ciclo-legend"></div>
+        </section>
+        <section class="panel">
+          <h2 class="panel-title">◉ ZONAS DE LA RULETA</h2>
+          <div class="zonas-grid" id="zonas-grid"></div>
+        </section>
+      </div>
+
+      <!-- COL 3: Frecuencias por número -->
+      <div class="grid-col">
+        <section class="panel panel-freq">
+          <h2 class="panel-title">◉ FRECUENCIAS POR NÚMERO
+            <span class="panel-count" id="freq-total">0 tiros</span>
+          </h2>
+          <div class="freq-chart" id="freq-chart"></div>
+        </section>
+      </div>
+
+    </div>
+  </div><!-- /tab-docenas -->
+
+  <!-- ══ TAB: SEÑALES ══ -->
+  <div class="tab-pane" id="tab-senales">
+    <div class="two-col-layout">
+      <div>
+        <section class="panel">
+          <h2 class="panel-title">◉ SEÑALES ACTIVAS <span class="panel-count" id="signals-count">0</span></h2>
+          <div class="signals-list" id="signals-list">
+            <div class="empty-msg">Sin datos suficientes — registra al menos 10 tiros</div>
+          </div>
+        </section>
+      </div>
+      <div>
+        <section class="panel">
+          <h2 class="panel-title">◉ ALERTAS & EVENTOS</h2>
+          <div class="alerts-log" id="alerts-log"><div class="empty-msg">Sin alertas aún.</div></div>
+        </section>
+        <section class="panel">
+          <h2 class="panel-title">◉ PROBABILIDADES PRÓXIMO TIRO</h2>
+          <div id="prob-panel"><div class="empty-msg">Más tiros necesarios.</div></div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ TAB: ESTADÍSTICAS ══ -->
+  <div class="tab-pane" id="tab-estadisticas">
+    <div class="stats-layout">
+      <section class="panel">
+        <h2 class="panel-title">◉ ESTADÍSTICAS GLOBALES</h2>
+        <div class="stats-global-grid" id="stats-global"></div>
+      </section>
+      <section class="panel">
+        <h2 class="panel-title">◉ CHI-CUADRADO (Aleatoriedad)</h2>
+        <div id="chi-panel"></div>
+      </section>
+      <section class="panel">
+        <h2 class="panel-title">◉ ENTROPÍA SHANNON</h2>
+        <div id="entropia-panel"></div>
+      </section>
+      <section class="panel">
+        <h2 class="panel-title">◉ NÚMEROS CALIENTES / FRÍOS</h2>
+        <div class="hot-cold-grid" id="hot-cold"></div>
+      </section>
+      <section class="panel">
+        <h2 class="panel-title">◉ DISTRIBUCIÓN COLOR</h2>
+        <div id="color-dist"></div>
+      </section>
+      <section class="panel">
+        <h2 class="panel-title">◉ GAPS & AUSENCIAS</h2>
+        <div id="gaps-panel"></div>
+      </section>
+    </div>
+  </div>
+
+  <!-- ══ TAB: APUESTAS ══ -->
+  <div class="tab-pane" id="tab-apuestas">
+    <div class="apuestas-layout">
+      <section class="panel">
+        <h2 class="panel-title">◉ PAR / IMPAR</h2>
+        <div id="paridad-panel"></div>
+      </section>
+      <section class="panel">
+        <h2 class="panel-title">◉ MITADES (1–18 / 19–36)</h2>
+        <div id="mitades-panel"></div>
+      </section>
+      <section class="panel">
+        <h2 class="panel-title">◉ COLUMNAS</h2>
+        <div id="columnas-panel"></div>
+      </section>
+      <section class="panel">
+        <h2 class="panel-title">◉ COLOR (ROJO / NEGRO)</h2>
+        <div id="color-panel"></div>
+      </section>
+      <section class="panel">
+        <h2 class="panel-title">◉ RECOMENDACIÓN INTEGRADA</h2>
+        <div id="recomendacion-panel"></div>
+      </section>
+    </div>
+  </div>
+
+  <!-- ══ TAB: AVANZADO (Vecinos + Patrones) ══ -->
+  <div class="tab-pane" id="tab-avanzado">
+    <div class="two-col-layout">
+      <div>
+        <section class="panel">
+          <h2 class="panel-title">◉ VECINOS & MAPA DE CALOR (Cilindro)</h2>
+          <div id="vecinos-panel"><div class="empty-msg">Registra más tiros para ver el mapa.</div></div>
+        </section>
+      </div>
+      <div>
+        <section class="panel">
+          <h2 class="panel-title">◉ DETECTOR DE PATRONES</h2>
+          <div id="patrones-panel"><div class="empty-msg">Sin patrones detectados aún.</div></div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ TAB: CAPITAL ══ -->
+  <div class="tab-pane" id="tab-capital">
+    <div class="capital-layout">
+      <section class="panel">
+        <h2 class="panel-title">◉ GESTIÓN DE CAPITAL (Martingala / Fibonacci / Paroli / D'Alembert)</h2>
+        <div id="capital-panel"><div class="empty-msg">Cargando gestor de capital...</div></div>
+      </section>
+    </div>
+  </div>
+
+  <!-- ══ TAB: HISTORIAL ══ -->
+  <div class="tab-pane" id="tab-historial">
+    <div class="historial-layout">
+      <section class="panel">
+        <h2 class="panel-title">◉ HISTORIAL COMPLETO
+          <span class="panel-count" id="hist-count">0 tiros</span>
+        </h2>
+        <div class="hist-toolbar">
+          <input type="text" id="hist-search" class="hist-search" placeholder="Filtrar número..."/>
+          <select id="hist-filter" class="hist-filter">
+            <option value="all">Todos</option>
+            <option value="D1">D1 (1–12)</option>
+            <option value="D2">D2 (13–24)</option>
+            <option value="D3">D3 (25–36)</option>
+            <option value="rojo">Rojos</option>
+            <option value="negro">Negros</option>
+            <option value="0">Cero</option>
+          </select>
+        </div>
+        <div class="historial-scroll" id="historial-scroll">
+          <div class="empty-msg">Sin registros aún.</div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+</main>
+
+<div class="toast" id="toast"></div>
+<script src="script.js"></script>
+</body>
+</html>
