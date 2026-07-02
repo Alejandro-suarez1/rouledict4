@@ -1417,29 +1417,46 @@ function renderAll() {
    REGISTRO DE NÚMERO
    ═══════════════════════════════════════ */
 
-// Guard global: evita doble registro por eventos simultáneos (Enter + click, qbtn + keydown, etc.)
-let _registrando = false;
+/* ══════════════════════════════════════════════════════════
+   REGISTRO DE NÚMERO — a prueba de doble disparo
+   El input se limpia ANTES de procesar para que cualquier
+   segundo Enter que llegue mientras renderAll() trabaja
+   encuentre el campo vacío y sea descartado como inválido.
+   ══════════════════════════════════════════════════════════ */
+function registrarNumero(rawVal) {
+  const inp = $id('numero-input');
 
-function registrarNumero(n) {
-  if (_registrando) return false;   // descarta llamada duplicada
-  _registrando = true;
-  setTimeout(() => { _registrando = false; }, 150);  // ventana de 150ms
+  // 1. Capturar y limpiar el input INMEDIATAMENTE
+  //    Esto corta cualquier segundo disparo: si Enter llega de nuevo
+  //    mientras procesamos, el input ya estará vacío → parseInt('') = NaN → descartado.
+  const valorCapturado = (rawVal !== undefined && rawVal !== null)
+    ? String(rawVal)
+    : (inp ? inp.value : '');
 
-  n = parseInt(n, 10);
+  if (inp) {
+    inp.value = '';           // limpiar YA, antes de cualquier cálculo
+    inp.blur();               // quitar foco temporalmente evita Enter repetido
+  }
+
+  // 2. Validar el valor capturado
+  const n = parseInt(valorCapturado, 10);
   if (isNaN(n) || n < 0 || n > 36) {
-    showToast('Número inválido. Usa 0–36', 'error');
-    const inp = $id('numero-input');
-    if (inp) { inp.classList.add('invalid'); setTimeout(() => inp.classList.remove('invalid'), 500); }
-    _registrando = false;
+    // Solo mostrar error si había algo escrito (no en el caso de campo vacío)
+    if (valorCapturado.trim() !== '') {
+      showToast('Número inválido. Usa 0–36', 'error');
+      if (inp) { inp.classList.add('invalid'); setTimeout(() => inp.classList.remove('invalid'), 500); }
+    }
+    if (inp) inp.focus();
     return false;
   }
 
+  // 3. Registrar
   historial.push(n);
   recalcularTodo();
   renderLastNumber(n);
   renderAll();
 
-  // Alertas automáticas
+  // 4. Alertas automáticas
   if (n === 0) agregarAlerta(`CERO cayó en tiro #${G.tiros}`, 'warning');
   const doc = docenaDeNum(n);
   if (doc !== 'CERO') {
@@ -1455,8 +1472,9 @@ function registrarNumero(n) {
   if (rc.largo === 12) agregarAlerta(`🚨 Racha ${rc.color?.toUpperCase()} ×12 — EXTREMO`, 'danger');
 
   guardarStorage();
-  const inp = $id('numero-input');
-  if (inp) { inp.value = ''; inp.focus(); }
+
+  // 5. Restaurar foco al input (ya limpio)
+  if (inp) inp.focus();
   return true;
 }
 
@@ -1585,13 +1603,13 @@ document.addEventListener('DOMContentLoaded',()=>{
 
   const inp = $id('numero-input');
   if (inp) {
-    // Enter en el input: usa keydown con preventDefault para evitar que
-    // el browser también dispare el click del btn-registrar (comportamiento form)
     inp.addEventListener('keydown', e => {
       if (e.key === 'Enter') {
         e.preventDefault();
         e.stopPropagation();
-        registrarNumero(inp.value);
+        // Capturamos el valor AQUÍ antes de que registrarNumero lo limpie
+        const val = inp.value;
+        registrarNumero(val);
       }
     });
     inp.addEventListener('input', () => {
@@ -1600,11 +1618,10 @@ document.addEventListener('DOMContentLoaded',()=>{
     });
   }
 
-  // Click del botón: usa mousedown en lugar de click para que no colisione
-  // con el keydown Enter (que ocurre antes del click event en la cadena)
   $id('btn-registrar')?.addEventListener('click', e => {
     e.preventDefault();
-    registrarNumero(inp?.value);
+    const val = inp ? inp.value : '';
+    registrarNumero(val);
   });
   $id('btn-undo')?.addEventListener('click',deshacerUltimo);
   $id('btn-export-json')?.addEventListener('click',exportJSON);
