@@ -1417,46 +1417,49 @@ function renderAll() {
    REGISTRO DE NÚMERO
    ═══════════════════════════════════════ */
 
-/* ══════════════════════════════════════════════════════════
-   REGISTRO DE NÚMERO — a prueba de doble disparo
-   El input se limpia ANTES de procesar para que cualquier
-   segundo Enter que llegue mientras renderAll() trabaja
-   encuentre el campo vacío y sea descartado como inválido.
-   ══════════════════════════════════════════════════════════ */
-function registrarNumero(rawVal) {
-  const inp = $id('numero-input');
+/* ══════════════════════════════════════════════════════════════
+   REGISTRO DE NÚMERO
+   Semáforo real: _lock se activa al entrar y solo se libera
+   en el siguiente frame de animación (requestAnimationFrame),
+   garantizando que cualquier evento duplicado que llegue en
+   el mismo tick o en frames intermedios sea descartado.
+   Sin blur/focus: eliminamos el ciclo de re-entrega de eventos.
+   ══════════════════════════════════════════════════════════════ */
+let _lock = false;
 
-  // 1. Capturar y limpiar el input INMEDIATAMENTE
-  //    Esto corta cualquier segundo disparo: si Enter llega de nuevo
-  //    mientras procesamos, el input ya estará vacío → parseInt('') = NaN → descartado.
-  const valorCapturado = (rawVal !== undefined && rawVal !== null)
+function registrarNumero(rawVal) {
+  // Semáforo: descarta cualquier llamada mientras se está procesando
+  if (_lock) return false;
+  _lock = true;
+
+  // Capturar valor ANTES de limpiar (para qbtn que pasan número directo)
+  const inp = $id('numero-input');
+  const valorCapturado = (rawVal !== undefined && rawVal !== null && String(rawVal).trim() !== '')
     ? String(rawVal)
     : (inp ? inp.value : '');
 
-  if (inp) {
-    inp.value = '';           // limpiar YA, antes de cualquier cálculo
-    inp.blur();               // quitar foco temporalmente evita Enter repetido
-  }
+  // Limpiar input inmediatamente — sin blur ni focus
+  if (inp) inp.value = '';
 
-  // 2. Validar el valor capturado
+  // Validar
   const n = parseInt(valorCapturado, 10);
   if (isNaN(n) || n < 0 || n > 36) {
-    // Solo mostrar error si había algo escrito (no en el caso de campo vacío)
     if (valorCapturado.trim() !== '') {
       showToast('Número inválido. Usa 0–36', 'error');
       if (inp) { inp.classList.add('invalid'); setTimeout(() => inp.classList.remove('invalid'), 500); }
     }
-    if (inp) inp.focus();
+    // Liberar lock en el siguiente frame
+    requestAnimationFrame(() => { _lock = false; });
     return false;
   }
 
-  // 3. Registrar
+  // Registrar
   historial.push(n);
   recalcularTodo();
   renderLastNumber(n);
   renderAll();
 
-  // 4. Alertas automáticas
+  // Alertas automáticas
   if (n === 0) agregarAlerta(`CERO cayó en tiro #${G.tiros}`, 'warning');
   const doc = docenaDeNum(n);
   if (doc !== 'CERO') {
@@ -1473,8 +1476,9 @@ function registrarNumero(rawVal) {
 
   guardarStorage();
 
-  // 5. Restaurar foco al input (ya limpio)
-  if (inp) inp.focus();
+  // Liberar lock en el siguiente frame de animación
+  // (garantiza que todos los eventos pendientes del frame actual sean descartados)
+  requestAnimationFrame(() => { _lock = false; });
   return true;
 }
 
@@ -1603,26 +1607,42 @@ document.addEventListener('DOMContentLoaded',()=>{
 
   const inp = $id('numero-input');
   if (inp) {
+    // Solo permitir dígitos mientras se escribe
+    inp.addEventListener('keypress', e => {
+      if (!/[0-9]/.test(e.key) && e.key !== 'Enter') e.preventDefault();
+    });
+
+    // Enter: capturar valor y registrar
+    // keydown garantiza que capturamos ANTES de que el browser haga cualquier otra cosa
     inp.addEventListener('keydown', e => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        e.stopPropagation();
-        // Capturamos el valor AQUÍ antes de que registrarNumero lo limpie
-        const val = inp.value;
+        e.stopImmediatePropagation(); // bloquea otros listeners del mismo elemento
+        const val = inp.value.trim();
         registrarNumero(val);
       }
     });
+
+    // Validación visual mientras escribe
     inp.addEventListener('input', () => {
       const v = parseInt(inp.value);
       inp.classList.toggle('invalid', inp.value !== '' && (isNaN(v) || v < 0 || v > 36));
     });
   }
 
-  $id('btn-registrar')?.addEventListener('click', e => {
-    e.preventDefault();
-    const val = inp ? inp.value : '';
-    registrarNumero(val);
-  });
+  // Botón: tabIndex=-1 evita que reciba foco con Tab o click,
+  // impidiendo que Enter "rebote" al botón después de salir del input
+  const btnReg = $id('btn-registrar');
+  if (btnReg) {
+    btnReg.setAttribute('tabindex', '-1');
+    btnReg.addEventListener('mousedown', e => {
+      // mousedown en lugar de click: se ejecuta antes de que el input pierda foco
+      // preventDefault evita que el input pierda foco (y así no se dispara blur)
+      e.preventDefault();
+      const val = inp ? inp.value.trim() : '';
+      registrarNumero(val);
+    });
+  }
   $id('btn-undo')?.addEventListener('click',deshacerUltimo);
   $id('btn-export-json')?.addEventListener('click',exportJSON);
   $id('btn-export-csv')?.addEventListener('click',exportCSV);
