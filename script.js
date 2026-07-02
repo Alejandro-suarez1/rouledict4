@@ -52,11 +52,11 @@ const historial = [];
 const G = {
   tiros: 0,
   docenas: {
-    D1:{ f:{}, af:0, aus:0, ciclo:null, cicloMin:null, cicloMax:null, cicloGaps:[],
+    D1:{ f:{}, af:0, afDetalle:{}, aus:0, ciclo:null, cicloMin:null, cicloMax:null, cicloGaps:[],
          apariciones:0, pct:0, desv:0, ema:{e5:0,e10:0,e20:0}, tend:'', mom:0, estadoNombre:'sin_datos' },
-    D2:{ f:{}, af:0, aus:0, ciclo:null, cicloMin:null, cicloMax:null, cicloGaps:[],
+    D2:{ f:{}, af:0, afDetalle:{}, aus:0, ciclo:null, cicloMin:null, cicloMax:null, cicloGaps:[],
          apariciones:0, pct:0, desv:0, ema:{e5:0,e10:0,e20:0}, tend:'', mom:0, estadoNombre:'sin_datos' },
-    D3:{ f:{}, af:0, aus:0, ciclo:null, cicloMin:null, cicloMax:null, cicloGaps:[],
+    D3:{ f:{}, af:0, afDetalle:{}, aus:0, ciclo:null, cicloMin:null, cicloMax:null, cicloGaps:[],
          apariciones:0, pct:0, desv:0, ema:{e5:0,e10:0,e20:0}, tend:'', mom:0, estadoNombre:'sin_datos' },
   },
   columnas:  { C1:{}, C2:{}, C3:{} },
@@ -100,6 +100,71 @@ function zScore(d, n) {
   return sd > 0 ? (f - esp) / sd : 0;
 }
 
+/**
+ * MÓDULO DE ACELERACIÓN DE FRECUENCIA (AF) — COMPLETO
+ *
+ * Calcula AF en múltiples ventanas y deriva:
+ *  - af5, af10, af20, af30  : Z-score de cada ventana (desviación vs esperado)
+ *  - afDelta                : diferencia Z10 − Z20 (¿ganando/perdiendo impulso?)
+ *  - afDelta2               : diferencia Z5 − Z10  (aceleración a corto plazo)
+ *  - afTrend                : dirección sostenida ('acelerando'/'desacelerando'/'neutro')
+ *  - afMagnitud             : valor resumen para señales (promedio ponderado)
+ *  - afRachaPositiva        : cuántos tiros consecutivos lleva Z5 > 0
+ *  - afRachaNegativa        : cuántos tiros consecutivos lleva Z5 < 0
+ *  - af                     : valor principal (afDelta, compatible con código anterior)
+ */
+function calcAFDetalle(d) {
+  const N = historial.length;
+  if (N < 5) return {
+    af5:0, af10:0, af20:0, af30:0,
+    afDelta:0, afDelta2:0, afTrend:'neutro',
+    afMagnitud:0, afRachaPositiva:0, afRachaNegativa:0, af:0,
+  };
+
+  const z5  = N >= 5  ? zScore(d, Math.min(5,  N)) : 0;
+  const z10 = N >= 10 ? zScore(d, Math.min(10, N)) : 0;
+  const z20 = N >= 20 ? zScore(d, Math.min(20, N)) : 0;
+  const z30 = N >= 30 ? zScore(d, Math.min(30, N)) : 0;
+
+  // Delta principal: Z10 − Z20 (aceleración reciente vs histórica media)
+  const afDelta  = z10 - z20;
+  // Delta corto:   Z5  − Z10 (impulso inmediato)
+  const afDelta2 = z5  - z10;
+
+  // Tendencia sostenida: los tres deltas apuntan en la misma dirección
+  const afTrend =
+    afDelta > 0.3  && afDelta2 > 0.15 ? 'acelerando'   :
+    afDelta < -0.3 && afDelta2 < -0.15 ? 'desacelerando' : 'neutro';
+
+  // Magnitud resumen (ponderada: más peso a ventana corta)
+  const afMagnitud = z5 * 0.5 + z10 * 0.3 + z20 * 0.2;
+
+  // Racha de Z5 positivo/negativo en últimos tiros
+  const { min, max } = DOCENAS[d];
+  let rachaPos = 0, rachaNeg = 0;
+  // Calculamos Z5 deslizante sobre los últimos 15 tiros
+  for (let i = N - 1; i >= Math.max(0, N - 15); i--) {
+    const sliceEnd   = i + 1;
+    const sliceStart = Math.max(0, sliceEnd - 5);
+    const cnt5 = historial.slice(sliceStart, sliceEnd).filter(x => x >= min && x <= max).length;
+    const len5 = sliceEnd - sliceStart;
+    const z5i  = len5 >= 3 ? (cnt5 - espDoc(len5)) / Math.sqrt(len5*(12/37)*(25/37)) : 0;
+    if (z5i > 0.1) { if (rachaNeg === 0) rachaPos++; else break; }
+    else if (z5i < -0.1) { if (rachaPos === 0) rachaNeg++; else break; }
+    else break;
+  }
+
+  return {
+    af5: z5, af10: z10, af20: z20, af30: z30,
+    afDelta, afDelta2, afTrend,
+    afMagnitud,
+    afRachaPositiva:  rachaPos,
+    afRachaNegativa:  rachaNeg,
+    af: afDelta,   // compatibilidad con código que usa data.af
+  };
+}
+
+// Wrapper que devuelve solo el valor escalar (usado en calcEstado y señales simples)
 function calcAF(d) {
   if (historial.length < 10) return 0;
   return zScore(d, Math.min(10, historial.length)) - zScore(d, Math.min(20, historial.length));
@@ -342,8 +407,26 @@ function generarSenales() {
     if (e5<e10 && e10<e20 && f10<=2 && historial.length>=20)
       s.push({ d, titulo:`${d} CRUCE EMA BAJISTA`, desc:'EMA-5 < EMA-10 < EMA-20. Evitar esta docena.', nivel:'baja', icon:'📉', conf:65 });
 
-    if (af > 1.8)
-      s.push({ d, titulo:`${d} ACELERACIÓN (+${af.toFixed(2)})`, desc:`Momentum positivo fuerte. F10=${f10} vs esp≈3.2.`, nivel:'media', icon:'🚀', conf:72 });
+    // ── SEÑALES AF COMPLETAS ──
+    const afd = data.afDetalle;
+    if (afd.afTrend === 'acelerando' && afd.afMagnitud > 0.8)
+      s.push({ d, titulo:`${d} ACELERACIÓN SOSTENIDA`, desc:`Z5=${afd.af5.toFixed(2)} Z10=${afd.af10.toFixed(2)} Z20=${afd.af20.toFixed(2)} — Δ=${afd.afDelta.toFixed(2)} Δ2=${afd.afDelta2.toFixed(2)}. Tendencia confirmada.`, nivel:'alta', icon:'🚀', conf:Math.min(88, 68 + Math.round(afd.afMagnitud * 10)) });
+
+    else if (afd.af5 > 1.5 && afd.afDelta2 > 0)
+      s.push({ d, titulo:`${d} IMPULSO CORTO FUERTE`, desc:`Z5=${afd.af5.toFixed(2)} — Frecuencia en los últimos 5 tiros muy por encima del esperado.`, nivel:'media', icon:'⚡', conf:72 });
+
+    if (afd.afTrend === 'desacelerando' && afd.afMagnitud < -0.8)
+      s.push({ d, titulo:`${d} DESACELERACIÓN SOSTENIDA`, desc:`Z5=${afd.af5.toFixed(2)} Z10=${afd.af10.toFixed(2)} Z20=${afd.af20.toFixed(2)} — Δ=${afd.afDelta.toFixed(2)}. Docena perdiendo impulso.`, nivel:'baja', icon:'📉', conf:65 });
+
+    if (afd.afRachaPositiva >= 5)
+      s.push({ d, titulo:`${d} RACHA AF POSITIVO ×${afd.afRachaPositiva}`, desc:`Lleva ${afd.afRachaPositiva} tiros con Z5 por encima de lo esperado.`, nivel:'media', icon:'🔺', conf:70 });
+
+    if (afd.afRachaNegativa >= 5)
+      s.push({ d, titulo:`${d} RACHA AF NEGATIVO ×${afd.afRachaNegativa}`, desc:`Lleva ${afd.afRachaNegativa} tiros con Z5 por debajo de lo esperado. Posible reversión.`, nivel:'media', icon:'🔻', conf:67 });
+
+    // Cruce AF: Z5 cruza de negativo a positivo (señal de entrada)
+    if (afd.af5 > 0.2 && afd.af10 < -0.2 && N >= 15)
+      s.push({ d, titulo:`${d} CRUCE AF ALCISTA`, desc:`Z5=${afd.af5.toFixed(2)} cruza sobre Z10=${afd.af10.toFixed(2)}. Posible punto de entrada.`, nivel:'alta', icon:'✅', conf:74 });
 
     if (est==='ideal' && ciclo && Math.abs(aus-ciclo)<=1)
       s.push({ d, titulo:`${d} EN PUNTO DE CICLO`, desc:`Ausencia=${aus} ≈ Ciclo=${ciclo.toFixed(1)}. Timing favorable.`, nivel:'alta', icon:'🎯', conf:79 });
@@ -391,7 +474,8 @@ function recalcularTodo() {
   for (const d of ['D1','D2','D3']) {
     const data = G.docenas[d];
     data.f = { f10:fDoc(d,Math.min(10,N)), f20:fDoc(d,Math.min(20,N)), f30:fDoc(d,Math.min(30,N)), f50:fDoc(d,Math.min(50,N)) };
-    data.af  = calcAF(d);
+    data.afDetalle = calcAFDetalle(d);
+    data.af  = data.afDetalle.af;
     data.aus = calcAus(d);
     const ci = calcCiclos(d);
     data.ciclo=ci.prom; data.cicloMin=ci.min; data.cicloMax=ci.max; data.cicloGaps=ci.gaps;
@@ -513,15 +597,76 @@ function renderEMA() {
    ═══════════════════════════════════════ */
 
 function renderAF() {
-  const cont=$id('af-visual'); if(!cont) return;
-  cont.innerHTML=['D1','D2','D3'].map(d=>{
-    const af=G.docenas[d].af, pct=Math.min(100,(Math.abs(af)/3)*100);
-    const col=af>1.5?'var(--green)':af>0.5?'var(--cyan)':af<-1.5?'var(--red)':af<-0.5?'var(--amber)':'var(--blue)';
-    const cls=af>0.1?'positive':af<-0.1?'negative':'neutral';
-    return `<div class="af-row">
-      <span class="af-label">${d}</span>
-      <div class="af-bar-track"><div class="af-bar-fill" style="width:${pct}%;background:${col}"></div></div>
-      <span class="af-value ${cls}">${af.toFixed(2)}</span>
+  const cont = $id('af-visual'); if (!cont) return;
+
+  if (G.tiros < 5) {
+    cont.innerHTML = '<div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim);padding:8px 0">Registra al menos 5 tiros para calcular AF.</div>';
+    return;
+  }
+
+  // Función auxiliar: color y clase según valor de Z
+  const zCol  = z => z > 1.5 ? 'var(--green)' : z > 0.5 ? 'var(--cyan)' : z < -1.5 ? 'var(--red)' : z < -0.5 ? 'var(--amber)' : 'var(--blue)';
+  const zCls  = z => z > 0.1 ? 'positive' : z < -0.1 ? 'negative' : 'neutral';
+  const zBar  = z => {
+    const pct = Math.min(100, (Math.abs(z) / 3) * 100);
+    const col = zCol(z);
+    // Barra centrada: positivo va a la derecha, negativo a la izquierda
+    const side = z >= 0 ? 'left' : 'right';
+    return `<div style="flex:1;height:10px;background:var(--bg-card-2);border:1px solid var(--border);border-radius:3px;overflow:hidden;position:relative">
+      <div style="position:absolute;${side}:50%;width:${pct/2}%;height:100%;background:${col};border-radius:2px"></div>
+      <div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--border-light)"></div>
+    </div>`;
+  };
+  const trendIcon = t => t === 'acelerando' ? '<span style="color:var(--green)">▲ ACELERANDO</span>' : t === 'desacelerando' ? '<span style="color:var(--red)">▼ DESACELER.</span>' : '<span style="color:var(--text-secondary)">→ NEUTRO</span>';
+
+  cont.innerHTML = ['D1','D2','D3'].map(d => {
+    const afd = G.docenas[d].afDetalle;
+    if (!afd || afd.af5 === undefined) return '';
+
+    const mainCol = zCol(afd.afMagnitud);
+    const rachaStr = afd.afRachaPositiva >= 3 ? `<span style="color:var(--green)">▲×${afd.afRachaPositiva}</span>` :
+                     afd.afRachaNegativa >= 3 ? `<span style="color:var(--red)">▼×${afd.afRachaNegativa}</span>` :
+                     '<span style="color:var(--text-dim)">—</span>';
+
+    return `<div style="background:var(--bg-card-2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:6px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px">
+        <span style="font-family:var(--font-mono);font-size:13px;font-weight:700;color:${mainCol}">${d}</span>
+        <span style="font-family:var(--font-mono);font-size:10px">${trendIcon(afd.afTrend)}</span>
+        <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-secondary)">RACHA: ${rachaStr}</span>
+        <span style="font-family:var(--font-mono);font-size:11px;font-weight:700;color:${mainCol}">MAG ${afd.afMagnitud.toFixed(2)}</span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:38px 1fr 44px;align-items:center;gap:5px;margin-bottom:3px">
+        <span style="font-family:var(--font-mono);font-size:9px;color:var(--text-secondary)">Z5</span>
+        ${zBar(afd.af5)}
+        <span style="font-family:var(--font-mono);font-size:10px;font-weight:600" class="${zCls(afd.af5)}">${afd.af5.toFixed(2)}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:38px 1fr 44px;align-items:center;gap:5px;margin-bottom:3px">
+        <span style="font-family:var(--font-mono);font-size:9px;color:var(--text-secondary)">Z10</span>
+        ${zBar(afd.af10)}
+        <span style="font-family:var(--font-mono);font-size:10px;font-weight:600" class="${zCls(afd.af10)}">${afd.af10.toFixed(2)}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:38px 1fr 44px;align-items:center;gap:5px;margin-bottom:3px">
+        <span style="font-family:var(--font-mono);font-size:9px;color:var(--text-secondary)">Z20</span>
+        ${zBar(afd.af20)}
+        <span style="font-family:var(--font-mono);font-size:10px;font-weight:600" class="${zCls(afd.af20)}">${afd.af20.toFixed(2)}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:38px 1fr 44px;align-items:center;gap:5px">
+        <span style="font-family:var(--font-mono);font-size:9px;color:var(--text-secondary)">Z30</span>
+        ${zBar(afd.af30)}
+        <span style="font-family:var(--font-mono);font-size:10px;font-weight:600" class="${zCls(afd.af30)}">${afd.af30.toFixed(2)}</span>
+      </div>
+
+      <div style="display:flex;gap:14px;margin-top:7px;padding-top:6px;border-top:1px solid var(--border)">
+        <span style="font-family:var(--font-mono);font-size:9px">
+          <span style="color:var(--text-secondary)">Δ(Z10−Z20) </span>
+          <span style="font-weight:700;color:${afd.afDelta>0?'var(--green)':'var(--red)'}">${afd.afDelta>=0?'+':''}${afd.afDelta.toFixed(2)}</span>
+        </span>
+        <span style="font-family:var(--font-mono);font-size:9px">
+          <span style="color:var(--text-secondary)">Δ2(Z5−Z10) </span>
+          <span style="font-weight:700;color:${afd.afDelta2>0?'var(--green)':'var(--red)'}">${afd.afDelta2>=0?'+':''}${afd.afDelta2.toFixed(2)}</span>
+        </span>
+      </div>
     </div>`;
   }).join('');
 }
@@ -1107,7 +1252,12 @@ function renderResumenEjecutivo() {
     const data=G.docenas[d]; let sc=50;
     sc+=Math.min(25,data.aus*2);
     if(data.ema.e5>data.ema.e10) sc+=10;
-    sc+=Math.min(10,data.af*3);
+    // AF: usar afMagnitud (ponderado multi-ventana) con clamping simétrico
+    const afMag = data.afDetalle?.afMagnitud ?? data.af;
+    sc += Math.max(-15, Math.min(15, afMag * 8));
+    // Bonus si AF está acelerando
+    if (data.afDetalle?.afTrend === 'acelerando')   sc += 8;
+    if (data.afDetalle?.afTrend === 'desacelerando') sc -= 5;
     sc-=Math.min(20,(data.f.f10||0)*3);
     if(data.estadoNombre==='peligro')     sc+=15;
     if(data.estadoNombre==='advertencia') sc+=8;
