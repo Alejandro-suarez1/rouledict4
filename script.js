@@ -1417,38 +1417,46 @@ function renderAll() {
    REGISTRO DE NÚMERO
    ═══════════════════════════════════════ */
 
+// Guard global: evita doble registro por eventos simultáneos (Enter + click, qbtn + keydown, etc.)
+let _registrando = false;
+
 function registrarNumero(n) {
-  n=parseInt(n,10);
-  if(isNaN(n)||n<0||n>36){
-    showToast('Número inválido. Usa 0–36','error');
-    const inp=$id('numero-input');
-    if(inp){inp.classList.add('invalid');setTimeout(()=>inp.classList.remove('invalid'),500);}
+  if (_registrando) return false;   // descarta llamada duplicada
+  _registrando = true;
+  setTimeout(() => { _registrando = false; }, 150);  // ventana de 150ms
+
+  n = parseInt(n, 10);
+  if (isNaN(n) || n < 0 || n > 36) {
+    showToast('Número inválido. Usa 0–36', 'error');
+    const inp = $id('numero-input');
+    if (inp) { inp.classList.add('invalid'); setTimeout(() => inp.classList.remove('invalid'), 500); }
+    _registrando = false;
     return false;
   }
+
   historial.push(n);
   recalcularTodo();
   renderLastNumber(n);
   renderAll();
 
   // Alertas automáticas
-  if(n===0) agregarAlerta(`CERO cayó en tiro #${G.tiros}`,'warning');
-  const doc=docenaDeNum(n);
-  if(doc!=='CERO'){
-    const ausDoc=G.docenas[doc].aus;
-    if(ausDoc===0&&historial.length>5){
-      let prevAus=0;
-      for(let i=historial.length-2;i>=0;i--){if(docenaDeNum(historial[i])===doc)break;prevAus++;}
-      if(prevAus>=8) agregarAlerta(`${doc} reaparece tras ${prevAus} tiros de ausencia`,'success');
+  if (n === 0) agregarAlerta(`CERO cayó en tiro #${G.tiros}`, 'warning');
+  const doc = docenaDeNum(n);
+  if (doc !== 'CERO') {
+    if (G.docenas[doc].aus === 0 && historial.length > 5) {
+      let prevAus = 0;
+      for (let i = historial.length - 2; i >= 0; i--) { if (docenaDeNum(historial[i]) === doc) break; prevAus++; }
+      if (prevAus >= 8) agregarAlerta(`${doc} reaparece tras ${prevAus} tiros de ausencia`, 'success');
     }
   }
-  const rc=calcRacha();
-  if(rc.largo===5) agregarAlerta(`Racha ${rc.color?.toUpperCase()} ×5 detectada`,'warning');
-  if(rc.largo===8) agregarAlerta(`⚠ Racha ${rc.color?.toUpperCase()} ×8 — ALERTA`,'danger');
-  if(rc.largo===12) agregarAlerta(`🚨 Racha ${rc.color?.toUpperCase()} ×12 — EXTREMO`,'danger');
+  const rc = calcRacha();
+  if (rc.largo === 5)  agregarAlerta(`Racha ${rc.color?.toUpperCase()} ×5 detectada`, 'warning');
+  if (rc.largo === 8)  agregarAlerta(`⚠ Racha ${rc.color?.toUpperCase()} ×8 — ALERTA`, 'danger');
+  if (rc.largo === 12) agregarAlerta(`🚨 Racha ${rc.color?.toUpperCase()} ×12 — EXTREMO`, 'danger');
 
   guardarStorage();
-  $id('numero-input').value='';
-  $id('numero-input').focus();
+  const inp = $id('numero-input');
+  if (inp) { inp.value = ''; inp.focus(); }
   return true;
 }
 
@@ -1575,16 +1583,29 @@ document.addEventListener('DOMContentLoaded',()=>{
   initTabs();
   generarBotonesRapidos();
 
-  const inp=$id('numero-input');
-  if(inp){
-    inp.addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();registrarNumero(inp.value);} });
-    inp.addEventListener('input',()=>{
-      const v=parseInt(inp.value);
-      inp.classList.toggle('invalid', inp.value!==''&&(isNaN(v)||v<0||v>36));
+  const inp = $id('numero-input');
+  if (inp) {
+    // Enter en el input: usa keydown con preventDefault para evitar que
+    // el browser también dispare el click del btn-registrar (comportamiento form)
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        registrarNumero(inp.value);
+      }
+    });
+    inp.addEventListener('input', () => {
+      const v = parseInt(inp.value);
+      inp.classList.toggle('invalid', inp.value !== '' && (isNaN(v) || v < 0 || v > 36));
     });
   }
 
-  $id('btn-registrar')?.addEventListener('click',()=>registrarNumero(inp?.value));
+  // Click del botón: usa mousedown en lugar de click para que no colisione
+  // con el keydown Enter (que ocurre antes del click event en la cadena)
+  $id('btn-registrar')?.addEventListener('click', e => {
+    e.preventDefault();
+    registrarNumero(inp?.value);
+  });
   $id('btn-undo')?.addEventListener('click',deshacerUltimo);
   $id('btn-export-json')?.addEventListener('click',exportJSON);
   $id('btn-export-csv')?.addEventListener('click',exportCSV);
