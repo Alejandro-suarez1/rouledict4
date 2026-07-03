@@ -1419,66 +1419,73 @@ function renderAll() {
 
 /* ══════════════════════════════════════════════════════════════
    REGISTRO DE NÚMERO
-   Semáforo real: _lock se activa al entrar y solo se libera
-   en el siguiente frame de animación (requestAnimationFrame),
-   garantizando que cualquier evento duplicado que llegue en
-   el mismo tick o en frames intermedios sea descartado.
-   Sin blur/focus: eliminamos el ciclo de re-entrega de eventos.
+   Protección anti-doble-disparo SIN semáforo persistente:
+   - El valor se captura y el input se limpia PRIMERO
+   - try/finally garantiza que nunca quede en estado bloqueado
+   - Un timestamp evita dos registros en menos de 80ms
+     (cubre dobles clicks, Enter sostenido, etc.)
+   - Sin blur/focus, sin rAF como lock
    ══════════════════════════════════════════════════════════════ */
-let _lock = false;
+let _ultimoRegistro = 0;   // timestamp del último registro exitoso
 
 function registrarNumero(rawVal) {
-  // Semáforo: descarta cualquier llamada mientras se está procesando
-  if (_lock) return false;
-  _lock = true;
-
-  // Capturar valor ANTES de limpiar (para qbtn que pasan número directo)
   const inp = $id('numero-input');
+
+  // 1. Capturar el valor ANTES de tocarlo
   const valorCapturado = (rawVal !== undefined && rawVal !== null && String(rawVal).trim() !== '')
     ? String(rawVal)
     : (inp ? inp.value : '');
 
-  // Limpiar input inmediatamente — sin blur ni focus
+  // 2. Limpiar el input inmediatamente
   if (inp) inp.value = '';
 
-  // Validar
+  // 3. Validar
   const n = parseInt(valorCapturado, 10);
   if (isNaN(n) || n < 0 || n > 36) {
     if (valorCapturado.trim() !== '') {
       showToast('Número inválido. Usa 0–36', 'error');
       if (inp) { inp.classList.add('invalid'); setTimeout(() => inp.classList.remove('invalid'), 500); }
     }
-    // Liberar lock en el siguiente frame
-    requestAnimationFrame(() => { _lock = false; });
     return false;
   }
 
-  // Registrar
-  historial.push(n);
-  recalcularTodo();
-  renderLastNumber(n);
-  renderAll();
+  // 4. Guardia de tiempo: ignorar si llegó en menos de 80ms del anterior
+  //    (cubre doble-click, Enter repetido, eventos sintéticos del browser)
+  const ahora = Date.now();
+  if (ahora - _ultimoRegistro < 80) return false;
+  _ultimoRegistro = ahora;
 
-  // Alertas automáticas
-  if (n === 0) agregarAlerta(`CERO cayó en tiro #${G.tiros}`, 'warning');
-  const doc = docenaDeNum(n);
-  if (doc !== 'CERO') {
-    if (G.docenas[doc].aus === 0 && historial.length > 5) {
+  // 5. Procesar — try/finally para que cualquier error no bloquee la app
+  try {
+    historial.push(n);
+    recalcularTodo();
+    renderLastNumber(n);
+    renderAll();
+
+    // Alertas automáticas
+    if (n === 0) agregarAlerta(`CERO cayó en tiro #${G.tiros}`, 'warning');
+    const doc = docenaDeNum(n);
+    if (doc !== 'CERO' && G.docenas[doc].aus === 0 && historial.length > 5) {
       let prevAus = 0;
-      for (let i = historial.length - 2; i >= 0; i--) { if (docenaDeNum(historial[i]) === doc) break; prevAus++; }
+      for (let i = historial.length - 2; i >= 0; i--) {
+        if (docenaDeNum(historial[i]) === doc) break;
+        prevAus++;
+      }
       if (prevAus >= 8) agregarAlerta(`${doc} reaparece tras ${prevAus} tiros de ausencia`, 'success');
     }
+    const rc = calcRacha();
+    if (rc.largo === 5)  agregarAlerta(`Racha ${rc.color?.toUpperCase()} ×5 detectada`, 'warning');
+    if (rc.largo === 8)  agregarAlerta(`⚠ Racha ${rc.color?.toUpperCase()} ×8 — ALERTA`, 'danger');
+    if (rc.largo === 12) agregarAlerta(`🚨 Racha ${rc.color?.toUpperCase()} ×12 — EXTREMO`, 'danger');
+
+    guardarStorage();
+  } catch (err) {
+    console.error('Error en registrarNumero:', err);
+    showToast('Error interno — intenta de nuevo', 'error');
+    // Revertir el push si falló después
+    if (historial.at(-1) === n) historial.pop();
   }
-  const rc = calcRacha();
-  if (rc.largo === 5)  agregarAlerta(`Racha ${rc.color?.toUpperCase()} ×5 detectada`, 'warning');
-  if (rc.largo === 8)  agregarAlerta(`⚠ Racha ${rc.color?.toUpperCase()} ×8 — ALERTA`, 'danger');
-  if (rc.largo === 12) agregarAlerta(`🚨 Racha ${rc.color?.toUpperCase()} ×12 — EXTREMO`, 'danger');
 
-  guardarStorage();
-
-  // Liberar lock en el siguiente frame de animación
-  // (garantiza que todos los eventos pendientes del frame actual sean descartados)
-  requestAnimationFrame(() => { _lock = false; });
   return true;
 }
 
