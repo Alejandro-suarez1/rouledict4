@@ -207,7 +207,11 @@ function calcCiclos(d) {
   const pos = historial.reduce((acc, n, i) => { if (n>=min && n<=max) acc.push(i); return acc; }, []);
   if (pos.length < 2) return { prom:null, min:null, max:null, gaps:[] };
   const gaps = pos.slice(1).map((p,i) => p - pos[i]);
-  return { prom: gaps.reduce((a,b)=>a+b,0)/gaps.length, min:Math.min(...gaps), max:Math.max(...gaps), gaps };
+  const prom = gaps.reduce((a,b)=>a+b,0) / gaps.length;
+  // Usar reduce en lugar de spread para evitar RangeError con arrays grandes
+  const gMin = gaps.reduce((a,b) => a < b ? a : b, gaps[0]);
+  const gMax = gaps.reduce((a,b) => a > b ? a : b, gaps[0]);
+  return { prom, min:gMin, max:gMax, gaps };
 }
 
 function calcEstado(d) {
@@ -408,25 +412,35 @@ function generarSenales() {
       s.push({ d, titulo:`${d} CRUCE EMA BAJISTA`, desc:'EMA-5 < EMA-10 < EMA-20. Evitar esta docena.', nivel:'baja', icon:'📉', conf:65 });
 
     // ── SEÑALES AF COMPLETAS ──
-    const afd = data.afDetalle;
-    if (afd.afTrend === 'acelerando' && afd.afMagnitud > 0.8)
-      s.push({ d, titulo:`${d} ACELERACIÓN SOSTENIDA`, desc:`Z5=${afd.af5.toFixed(2)} Z10=${afd.af10.toFixed(2)} Z20=${afd.af20.toFixed(2)} — Δ=${afd.afDelta.toFixed(2)} Δ2=${afd.afDelta2.toFixed(2)}. Tendencia confirmada.`, nivel:'alta', icon:'🚀', conf:Math.min(88, 68 + Math.round(afd.afMagnitud * 10)) });
+    // Usar optional chaining + nullish para evitar crash si afDetalle no está listo
+    const afd = data.afDetalle ?? {};
+    const af5  = afd.af5  ?? 0;
+    const af10 = afd.af10 ?? 0;
+    const af20 = afd.af20 ?? 0;
+    const afDelta  = afd.afDelta  ?? 0;
+    const afDelta2 = afd.afDelta2 ?? 0;
+    const afMagnitud     = afd.afMagnitud     ?? 0;
+    const afTrend        = afd.afTrend        ?? 'neutro';
+    const afRachaPos     = afd.afRachaPositiva ?? 0;
+    const afRachaNeg     = afd.afRachaNegativa ?? 0;
 
-    else if (afd.af5 > 1.5 && afd.afDelta2 > 0)
-      s.push({ d, titulo:`${d} IMPULSO CORTO FUERTE`, desc:`Z5=${afd.af5.toFixed(2)} — Frecuencia en los últimos 5 tiros muy por encima del esperado.`, nivel:'media', icon:'⚡', conf:72 });
+    if (afTrend === 'acelerando' && afMagnitud > 0.8)
+      s.push({ d, titulo:`${d} ACELERACIÓN SOSTENIDA`, desc:`Z5=${af5.toFixed(2)} Z10=${af10.toFixed(2)} Z20=${af20.toFixed(2)} — Δ=${afDelta.toFixed(2)} Δ2=${afDelta2.toFixed(2)}.`, nivel:'alta', icon:'🚀', conf:Math.min(88, 68 + Math.round(afMagnitud * 10)) });
 
-    if (afd.afTrend === 'desacelerando' && afd.afMagnitud < -0.8)
-      s.push({ d, titulo:`${d} DESACELERACIÓN SOSTENIDA`, desc:`Z5=${afd.af5.toFixed(2)} Z10=${afd.af10.toFixed(2)} Z20=${afd.af20.toFixed(2)} — Δ=${afd.afDelta.toFixed(2)}. Docena perdiendo impulso.`, nivel:'baja', icon:'📉', conf:65 });
+    else if (af5 > 1.5 && afDelta2 > 0)
+      s.push({ d, titulo:`${d} IMPULSO CORTO FUERTE`, desc:`Z5=${af5.toFixed(2)} — Frecuencia muy por encima del esperado.`, nivel:'media', icon:'⚡', conf:72 });
 
-    if (afd.afRachaPositiva >= 5)
-      s.push({ d, titulo:`${d} RACHA AF POSITIVO ×${afd.afRachaPositiva}`, desc:`Lleva ${afd.afRachaPositiva} tiros con Z5 por encima de lo esperado.`, nivel:'media', icon:'🔺', conf:70 });
+    if (afTrend === 'desacelerando' && afMagnitud < -0.8)
+      s.push({ d, titulo:`${d} DESACELERACIÓN SOSTENIDA`, desc:`Z5=${af5.toFixed(2)} Z10=${af10.toFixed(2)} — Δ=${afDelta.toFixed(2)}. Docena perdiendo impulso.`, nivel:'baja', icon:'📉', conf:65 });
 
-    if (afd.afRachaNegativa >= 5)
-      s.push({ d, titulo:`${d} RACHA AF NEGATIVO ×${afd.afRachaNegativa}`, desc:`Lleva ${afd.afRachaNegativa} tiros con Z5 por debajo de lo esperado. Posible reversión.`, nivel:'media', icon:'🔻', conf:67 });
+    if (afRachaPos >= 5)
+      s.push({ d, titulo:`${d} RACHA AF POSITIVO ×${afRachaPos}`, desc:`Lleva ${afRachaPos} tiros con Z5 por encima de lo esperado.`, nivel:'media', icon:'🔺', conf:70 });
 
-    // Cruce AF: Z5 cruza de negativo a positivo (señal de entrada)
-    if (afd.af5 > 0.2 && afd.af10 < -0.2 && N >= 15)
-      s.push({ d, titulo:`${d} CRUCE AF ALCISTA`, desc:`Z5=${afd.af5.toFixed(2)} cruza sobre Z10=${afd.af10.toFixed(2)}. Posible punto de entrada.`, nivel:'alta', icon:'✅', conf:74 });
+    if (afRachaNeg >= 5)
+      s.push({ d, titulo:`${d} RACHA AF NEGATIVO ×${afRachaNeg}`, desc:`Lleva ${afRachaNeg} tiros con Z5 por debajo de lo esperado.`, nivel:'media', icon:'🔻', conf:67 });
+
+    if (af5 > 0.2 && af10 < -0.2 && N >= 15)
+      s.push({ d, titulo:`${d} CRUCE AF ALCISTA`, desc:`Z5=${af5.toFixed(2)} cruza sobre Z10=${af10.toFixed(2)}. Posible punto de entrada.`, nivel:'alta', icon:'✅', conf:74 });
 
     if (est==='ideal' && ciclo && Math.abs(aus-ciclo)<=1)
       s.push({ d, titulo:`${d} EN PUNTO DE CICLO`, desc:`Ausencia=${aus} ≈ Ciclo=${ciclo.toFixed(1)}. Timing favorable.`, nivel:'alta', icon:'🎯', conf:79 });
@@ -519,9 +533,15 @@ function recalcularTodo() {
     if (n!==0) { n%2===0?G.paridad.par++:G.paridad.impar++; n<=18?G.mitades.baja++:G.mitades.alta++; }
   }
 
-  G.chi     = calcChiCuadrado();
+  G.chi      = calcChiCuadrado();
   G.entropia = calcEntropia();
-  G.senales  = generarSenales();
+  // generarSenales usa afDetalle — proteger por si acaso
+  try {
+    G.senales = generarSenales();
+  } catch(e) {
+    console.warn('[ESTRATÉGICO] generarSenales falló:', e.message);
+    G.senales = [];
+  }
 }
 
 /* ═══════════════════════════════════════
@@ -620,51 +640,63 @@ function renderAF() {
   const trendIcon = t => t === 'acelerando' ? '<span style="color:var(--green)">▲ ACELERANDO</span>' : t === 'desacelerando' ? '<span style="color:var(--red)">▼ DESACELER.</span>' : '<span style="color:var(--text-secondary)">→ NEUTRO</span>';
 
   cont.innerHTML = ['D1','D2','D3'].map(d => {
-    const afd = G.docenas[d].afDetalle;
-    if (!afd || afd.af5 === undefined) return '';
+    const afd = G.docenas[d].afDetalle ?? {};
+    if (!afd.afTrend) return '';
 
-    const mainCol = zCol(afd.afMagnitud);
-    const rachaStr = afd.afRachaPositiva >= 3 ? `<span style="color:var(--green)">▲×${afd.afRachaPositiva}</span>` :
-                     afd.afRachaNegativa >= 3 ? `<span style="color:var(--red)">▼×${afd.afRachaNegativa}</span>` :
+    // Extraer con fallback a 0 para evitar .toFixed() sobre undefined
+    const _af5  = afd.af5       ?? 0;
+    const _af10 = afd.af10      ?? 0;
+    const _af20 = afd.af20      ?? 0;
+    const _af30 = afd.af30      ?? 0;
+    const _afD  = afd.afDelta   ?? 0;
+    const _afD2 = afd.afDelta2  ?? 0;
+    const _afM  = afd.afMagnitud ?? 0;
+    const _afT  = afd.afTrend   ?? 'neutro';
+    const _afRP = afd.afRachaPositiva ?? 0;
+    const _afRN = afd.afRachaNegativa ?? 0;
+
+    const mainCol = zCol(_afM);
+    const rachaStr = _afRP >= 3 ? `<span style="color:var(--green)">▲×${_afRP}</span>` :
+                     _afRN >= 3 ? `<span style="color:var(--red)">▼×${_afRN}</span>` :
                      '<span style="color:var(--text-dim)">—</span>';
 
     return `<div style="background:var(--bg-card-2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:6px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px">
         <span style="font-family:var(--font-mono);font-size:13px;font-weight:700;color:${mainCol}">${d}</span>
-        <span style="font-family:var(--font-mono);font-size:10px">${trendIcon(afd.afTrend)}</span>
+        <span style="font-family:var(--font-mono);font-size:10px">${trendIcon(_afT)}</span>
         <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-secondary)">RACHA: ${rachaStr}</span>
-        <span style="font-family:var(--font-mono);font-size:11px;font-weight:700;color:${mainCol}">MAG ${afd.afMagnitud.toFixed(2)}</span>
+        <span style="font-family:var(--font-mono);font-size:11px;font-weight:700;color:${mainCol}">MAG ${_afM.toFixed(2)}</span>
       </div>
 
       <div style="display:grid;grid-template-columns:38px 1fr 44px;align-items:center;gap:5px;margin-bottom:3px">
         <span style="font-family:var(--font-mono);font-size:9px;color:var(--text-secondary)">Z5</span>
-        ${zBar(afd.af5)}
-        <span style="font-family:var(--font-mono);font-size:10px;font-weight:600" class="${zCls(afd.af5)}">${afd.af5.toFixed(2)}</span>
+        ${zBar(_af5)}
+        <span style="font-family:var(--font-mono);font-size:10px;font-weight:600" class="${zCls(_af5)}">${_af5.toFixed(2)}</span>
       </div>
       <div style="display:grid;grid-template-columns:38px 1fr 44px;align-items:center;gap:5px;margin-bottom:3px">
         <span style="font-family:var(--font-mono);font-size:9px;color:var(--text-secondary)">Z10</span>
-        ${zBar(afd.af10)}
-        <span style="font-family:var(--font-mono);font-size:10px;font-weight:600" class="${zCls(afd.af10)}">${afd.af10.toFixed(2)}</span>
+        ${zBar(_af10)}
+        <span style="font-family:var(--font-mono);font-size:10px;font-weight:600" class="${zCls(_af10)}">${_af10.toFixed(2)}</span>
       </div>
       <div style="display:grid;grid-template-columns:38px 1fr 44px;align-items:center;gap:5px;margin-bottom:3px">
         <span style="font-family:var(--font-mono);font-size:9px;color:var(--text-secondary)">Z20</span>
-        ${zBar(afd.af20)}
-        <span style="font-family:var(--font-mono);font-size:10px;font-weight:600" class="${zCls(afd.af20)}">${afd.af20.toFixed(2)}</span>
+        ${zBar(_af20)}
+        <span style="font-family:var(--font-mono);font-size:10px;font-weight:600" class="${zCls(_af20)}">${_af20.toFixed(2)}</span>
       </div>
       <div style="display:grid;grid-template-columns:38px 1fr 44px;align-items:center;gap:5px">
         <span style="font-family:var(--font-mono);font-size:9px;color:var(--text-secondary)">Z30</span>
-        ${zBar(afd.af30)}
-        <span style="font-family:var(--font-mono);font-size:10px;font-weight:600" class="${zCls(afd.af30)}">${afd.af30.toFixed(2)}</span>
+        ${zBar(_af30)}
+        <span style="font-family:var(--font-mono);font-size:10px;font-weight:600" class="${zCls(_af30)}">${_af30.toFixed(2)}</span>
       </div>
 
       <div style="display:flex;gap:14px;margin-top:7px;padding-top:6px;border-top:1px solid var(--border)">
         <span style="font-family:var(--font-mono);font-size:9px">
           <span style="color:var(--text-secondary)">Δ(Z10−Z20) </span>
-          <span style="font-weight:700;color:${afd.afDelta>0?'var(--green)':'var(--red)'}">${afd.afDelta>=0?'+':''}${afd.afDelta.toFixed(2)}</span>
+          <span style="font-weight:700;color:${_afD>0?'var(--green)':'var(--red)'}">${_afD>=0?'+':''}${_afD.toFixed(2)}</span>
         </span>
         <span style="font-family:var(--font-mono);font-size:9px">
           <span style="color:var(--text-secondary)">Δ2(Z5−Z10) </span>
-          <span style="font-weight:700;color:${afd.afDelta2>0?'var(--green)':'var(--red)'}">${afd.afDelta2>=0?'+':''}${afd.afDelta2.toFixed(2)}</span>
+          <span style="font-weight:700;color:${_afD2>0?'var(--green)':'var(--red)'}">${_afD2>=0?'+':''}${_afD2.toFixed(2)}</span>
         </span>
       </div>
     </div>`;
@@ -1392,25 +1424,46 @@ function renderHistorial(filtroNum='', filtroTipo='all') {
    ═══════════════════════════════════════ */
 
 function renderAll() {
+  // Render crítico: visible inmediatamente (header, strip, docenas, señales)
   renderHeader();
   renderRachas();
   renderHistoryStrip();
-  renderDocenas();
-  renderEMA();
-  renderAF();
-  renderCicloCanvas();
-  renderZonas();
-  renderFreqChart();
-  renderSenales();
-  renderProbabilidades();
-  renderAlertsLog();
-  renderEstadisticas();
-  renderApuestas();
-  renderVecinos();
-  renderPatrones();
-  renderCapital();
-  renderResumenEjecutivo();
-  renderHistorial($id('hist-search')?.value||'', $id('hist-filter')?.value||'all');
+  renderLastNumberFromState();
+
+  // Render secundario: diferido al siguiente frame para no bloquear el hilo
+  // Esto es especialmente importante en GitHub Pages donde la primera carga
+  // puede ser más lenta y el hilo principal más congestionado
+  requestAnimationFrame(() => {
+    renderDocenas();
+    renderEMA();
+    renderAF();
+    renderSenales();
+    renderResumenEjecutivo();
+
+    // Render terciario: diferido un frame más (análisis pesado)
+    requestAnimationFrame(() => {
+      renderCicloCanvas();
+      renderZonas();
+      renderFreqChart();
+      renderProbabilidades();
+      renderAlertsLog();
+      renderEstadisticas();
+      renderApuestas();
+      renderVecinos();
+      renderPatrones();
+      renderCapital();
+      renderHistorial($id('hist-search')?.value||'', $id('hist-filter')?.value||'all');
+    });
+  });
+}
+
+// Actualizar solo el número grande sin esperar al rAF (feedback inmediato)
+function renderLastNumberFromState() {
+  if (!historial.length) return;
+  const n = historial.at(-1);
+  const el = $id('last-number'), badge = $id('last-color-badge');
+  if (el) { el.textContent = n; el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }
+  if (badge) { const c = colorNum(n); badge.textContent = c.toUpperCase(); badge.className = `last-color-badge ${c}`; }
 }
 
 /* ═══════════════════════════════════════
@@ -1455,36 +1508,41 @@ function registrarNumero(rawVal) {
   if (ahora - _ultimoRegistro < 80) return false;
   _ultimoRegistro = ahora;
 
-  // 5. Procesar — try/finally para que cualquier error no bloquee la app
+  // 5. Cálculo — separado del render para aislar errores
   try {
     historial.push(n);
     recalcularTodo();
-    renderLastNumber(n);
-    renderAll();
-
-    // Alertas automáticas
-    if (n === 0) agregarAlerta(`CERO cayó en tiro #${G.tiros}`, 'warning');
-    const doc = docenaDeNum(n);
-    if (doc !== 'CERO' && G.docenas[doc].aus === 0 && historial.length > 5) {
-      let prevAus = 0;
-      for (let i = historial.length - 2; i >= 0; i--) {
-        if (docenaDeNum(historial[i]) === doc) break;
-        prevAus++;
-      }
-      if (prevAus >= 8) agregarAlerta(`${doc} reaparece tras ${prevAus} tiros de ausencia`, 'success');
-    }
-    const rc = calcRacha();
-    if (rc.largo === 5)  agregarAlerta(`Racha ${rc.color?.toUpperCase()} ×5 detectada`, 'warning');
-    if (rc.largo === 8)  agregarAlerta(`⚠ Racha ${rc.color?.toUpperCase()} ×8 — ALERTA`, 'danger');
-    if (rc.largo === 12) agregarAlerta(`🚨 Racha ${rc.color?.toUpperCase()} ×12 — EXTREMO`, 'danger');
-
-    guardarStorage();
   } catch (err) {
-    console.error('Error en registrarNumero:', err);
-    showToast('Error interno — intenta de nuevo', 'error');
-    // Revertir el push si falló después
+    // Log detallado para diagnosticar en GitHub Pages
+    console.error('[ESTRATÉGICO] Error en cálculo:', err.message);
+    console.error('[ESTRATÉGICO] Stack:', err.stack);
+    console.error('[ESTRATÉGICO] Tiros:', historial.length, '| Último:', n);
     if (historial.at(-1) === n) historial.pop();
+    showToast('Error: ' + err.message.slice(0, 60), 'error');
+    return false;
   }
+
+  // 6. Alertas (antes del render para que aparezcan en el mismo frame)
+  if (n === 0) agregarAlerta(`CERO cayó en tiro #${G.tiros}`, 'warning');
+  const doc = docenaDeNum(n);
+  if (doc !== 'CERO' && G.docenas[doc].aus === 0 && historial.length > 5) {
+    let prevAus = 0;
+    for (let i = historial.length - 2; i >= 0; i--) {
+      if (docenaDeNum(historial[i]) === doc) break;
+      prevAus++;
+    }
+    if (prevAus >= 8) agregarAlerta(`${doc} reaparece tras ${prevAus} tiros de ausencia`, 'success');
+  }
+  const rc = calcRacha();
+  if (rc.largo === 5)  agregarAlerta(`Racha ${rc.color?.toUpperCase()} ×5 detectada`, 'warning');
+  if (rc.largo === 8)  agregarAlerta(`⚠ Racha ${rc.color?.toUpperCase()} ×8 — ALERTA`, 'danger');
+  if (rc.largo === 12) agregarAlerta(`🚨 Racha ${rc.color?.toUpperCase()} ×12 — EXTREMO`, 'danger');
+
+  guardarStorage();
+
+  // 7. Render — diferido, nunca bloquea el input
+  renderLastNumber(n);
+  renderAll();
 
   return true;
 }
